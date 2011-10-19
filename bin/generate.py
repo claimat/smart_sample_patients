@@ -5,6 +5,7 @@ from med import Med
 from problem import Problem
 from refill import Refill
 from lab import Lab
+import random
 import argparse
 import sys
 import os
@@ -72,12 +73,15 @@ class PatientGraph:
       g.bind('dc',DC)
       g.bind('dcterms',DCTERMS)
       g.bind('foaf',FOAF)
+      g.bind('v', VCARD)
 
       self.patient = BNode()
       g.add((self.patient,RDF.type,SP.MedicalRecord))
 
       # Now add the patient demographic triples:
       pNode = BNode()
+      self.personNode = pNode
+
       self.addStatement(pNode)
       g.add((pNode,RDF.type,SP.Demographics))
 
@@ -107,6 +111,33 @@ class PatientGraph:
 
       g = self.g
       if not self.pid in Med.meds: return  # No meds for this patient
+
+      patientReportList = BNode()
+      g.add((patientReportList, RDF.type, SP['MedicationList']))
+      g.add((patientReportList, SP['responsibleParty'], self.personNode))
+      g.add((patientReportList, SP['startDate'], Literal(max(m.start for m in Med.meds[self.pid]))))
+      g.add((patientReportList, 
+             SP['medListName'], 
+             self.codedValue(SPCODE["MedListName"],  
+                             SPCODE["MedListName"]+"#patientReport",
+                             "Derived by patient report",
+                             SPCODE["MedListName"]+"#",
+                             "patientReport")))
+
+      fulfillmentsBasedList= BNode()
+      g.add((fulfillmentsBasedList, RDF.type, SP['MedicationList']))
+      g.add((fulfillmentsBasedList, SP['startDate'], Literal(min(m.start for m in Med.meds[self.pid]))))
+      g.add((fulfillmentsBasedList, SP['endDate'], Literal(max(m.start for m in Med.meds[self.pid]))))
+      g.add((fulfillmentsBasedList, 
+             SP['medListName'], 
+             self.codedValue(SPCODE["MedListName"],  
+                             SPCODE["MedListName"]+"#fulfillment",
+                             "Derived by fulfillment history",
+                             SPCODE["MedListName"]+"#",
+                             "fulfillment")))
+
+
+
       for m in Med.meds[self.pid]:
         mNode = BNode()
         g.add((mNode,RDF.type,SP['Medication']))
@@ -120,8 +151,17 @@ class PatientGraph:
 
         self.addStatement(mNode)
 
+        hasFill = False
+        
+        if (random.random() < .5):
+           g.add((patientReportList, SP['medication'], mNode))
+
         # Now,loop through and add fulfillments for each med
         for fill in Refill.refill_list(m.pid,m.rxn):
+          if not hasFill:
+             g.add((fulfillmentsBasedList, SP['medication'], mNode))
+             hasFill = True
+
           rfNode = BNode()
           g.add((rfNode,RDF.type,SP['Fulfillment']))
           g.add((rfNode,DCTERMS['date'],Literal(fill.date)))
@@ -132,6 +172,8 @@ class PatientGraph:
           g.add((rfNode,SP['medication'],mNode)) # create bidirectional links
           g.add((mNode,SP['fulfillment'],rfNode))
           self.addStatement(rfNode)
+
+   
 
    def addProblemList(self):
       """Add problems to a patient's graph"""
